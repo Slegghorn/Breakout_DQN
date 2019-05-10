@@ -162,4 +162,23 @@ with tf.Session() as sess:
                 replay_memory.pop(0)
 
             replay_memory.append(Transition(state, action, reward, next_state, done))
-            
+
+            if len_replay_memory > replay_memory_init_size:
+                samples = random.sample(replay_memory, batch_size)
+                states_batch, action_batch, reward_batch, next_states_batch, done_batch = map(np.array, zip(*samples))
+
+                q_values_next_target = dqn_target.predict(sess, next_states_batch)
+                best_action_target = np.argmax(q_values_next_target, axis = 1)
+                target_batch = reward_batch + np.invert(done_batch).astype(np.float32) * discount_factor * q_values_next_target[np.arange(batch_size), best_action_target]
+
+                states_batch = np.array(states_batch)
+                loss = update(sess, states_batch, action_batch, next_batch)
+
+                opti_step +=1
+
+            state = next_state
+            if done:
+                break
+        epi_reward.append(r_sum)
+        if len(epi_reward) > 100:
+            epi_reward = epi_reward[1:]
