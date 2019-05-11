@@ -6,20 +6,23 @@ import os
 import random
 import time
 import sys
+from collections import namedtuple
+from gym.wrappers import Monitor
 
 class StateProcessor:
     def __init__(self):
         with tf.variable_scope('process'):
             self.input_state = tf.placeholder(shape = [210, 160, 3], dtype = tf.uint8, name = 'input_state')
-            self.output = tf.image.rgbtograyscale(self.input_state)
+            self.output = tf.image.rgb_to_grayscale(self.input_state)
             self.output = tf.image.crop_to_bounding_box(self.output, 34, 0, 160, 160) # offset height, offset width, x, y
             self.output = tf.image.resize_images(self.output, [84, 84], method = tf.image.ResizeMethod.NEAREST_NEIGHBOR)
             self.output = tf.squeeze(self.output) # remove demension wich values = 1
     def process(self, sess, state):
         return sess.run(self.output, {self.input_state : state})
 
-#env = gym.make('Breakout-v0')
-#env.reset()
+env = gym.make('Breakout-v0')
+env = Monitor(env, './video')
+env.reset()
 
 VALID_ACTIONS = [0, 1, 2, 3]
 
@@ -96,7 +99,7 @@ batch_size = 32
 def make_epsilon_greedy_policy(dqn, nA):
     def policy_fn(sess, state, epsilon):
         A = np.ones(nA, dtype = float) * epsilon/nA
-        q_values = dqn.predict(sess, np.expand_dims(observation, 0))[0]
+        q_values = dqn.predict(sess, np.expand_dims(state, 0))[0]
         best_action = np.argmax(q_values)
         A[best_action] += (1.0 - epsilon)
         return A
@@ -131,34 +134,34 @@ with tf.Session() as sess:
     for i_episode in range(start_i_episode, num_episodes):
         state = env.reset()
         state = state_processor.process(sess, state)
-        state = np.stack([stack] * 4, axis = 2)
+        state = np.stack([state] * 4, axis = 2)
         loss = None
         done = False
-        reward_sum = 0
+        r_sum = 0
         mean_epi_reward = np.mean(epi_reward)
         if best_epi_reward < mean_epi_reward:
             best_epi_reward = mean_epi_reward
             saver.save(tf.get_default_session(), checkpoint_path)
-        len_memory = len(replay_memory)
+        len_replay_memory = len(replay_memory)
         while not done:
             epsilon = epsilons[min(opti_step+1, epsilon_decay_steps-1)]
 
             if opti_step % update_target_dqn == 0:
                 copy_model_parameters(sess, dqn, target_dqn)
-
-             print("\r Epsilon ({}) ReplayMemorySize : ({}) rSum: ({}) best_epi_reward: ({}) OptiStep ({}) @ Episode {}/{}, loss: {}".format(epsilon, len_replay_memory, mean_epi_reward, best_epi_reward, opti_step, i_episode + 1, num_episodes, loss), end="")
-            sys.stdout.flush()
+            if i_episode%100 ==0:
+              print("\r Epsilon ({}) ReplayMemorySize : ({}) rSum: ({}) best_epi_reward: ({}) OptiStep ({}) @ Episode {}/{}, loss: {}".format(epsilon, len_replay_memory, mean_epi_reward, best_epi_reward, opti_step, i_episode + 1, num_episodes, loss), end="")
+              sys.stdout.flush()
 
             actions_probs = policy(sess, state, epsilon)
-            action = np.random.choice(np.arrange(len(actionsprobs)), p = actions_probs)
+            action = np.random.choice(np.arange(len(actions_probs)), p = actions_probs)
 
-            next_step, reward, done, _ = env.step(VALID_ACTIONS[action])
+            next_state, reward, done, _ = env.step(VALID_ACTIONS[action])
             r_sum += reward
 
             next_state = state_processor.process(sess, next_state)
             next_state = np.append(state[:,:,1:], np.expand_dims(next_state, 2), axis = 2)
 
-            if len(replay_memory) =+ replay_memory_size:
+            if len(replay_memory) == replay_memory_size:
                 replay_memory.pop(0)
 
             replay_memory.append(Transition(state, action, reward, next_state, done))
@@ -167,12 +170,12 @@ with tf.Session() as sess:
                 samples = random.sample(replay_memory, batch_size)
                 states_batch, action_batch, reward_batch, next_states_batch, done_batch = map(np.array, zip(*samples))
 
-                q_values_next_target = dqn_target.predict(sess, next_states_batch)
+                q_values_next_target = target_dqn.predict(sess, next_states_batch)
                 best_action_target = np.argmax(q_values_next_target, axis = 1)
-                target_batch = reward_batch + np.invert(done_batch).astype(np.float32) * discount_factor * q_values_next_target[np.arange(batch_size), best_action_target]
+                targets_batch = reward_batch + np.invert(done_batch).astype(np.float32) * discount_factor * q_values_next_target[np.arange(batch_size), best_action_target]
 
                 states_batch = np.array(states_batch)
-                loss = update(sess, states_batch, action_batch, next_batch)
+                loss = dqn.update(sess, states_batch, action_batch, targets_batch)
 
                 opti_step +=1
 
