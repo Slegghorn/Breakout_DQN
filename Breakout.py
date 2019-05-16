@@ -7,7 +7,6 @@ import random
 import time
 import sys
 from collections import namedtuple
-from gym.wrappers import Monitor
 
 class StateProcessor:
     def __init__(self):
@@ -21,7 +20,7 @@ class StateProcessor:
         return sess.run(self.output, {self.input_state : state})
 
 env = gym.make('Breakout-v0')
-env = Monitor(env, './video')
+env = gym.wrappers.Monitor(env, "./drive/My Drive/dqn/video", video_callable=lambda episode_id: episode_id%50==0,force=True)
 env.reset()
 
 VALID_ACTIONS = [0, 1, 2, 3]
@@ -115,14 +114,7 @@ with tf.Session() as sess:
 
     Transition = namedtuple('Transition', ['state', 'action', 'reward', 'next_state', 'done'])
 
-    checkpoint_dir = os.path.join('./', 'Checkpoints')
-    checkpoint_path = os.path.join(checkpoint_dir, 'model')
-
-    if not os.path.exists(checkpoint_dir):
-        os.makedirs(checkpoint_dir)
-
     saver = tf.train.Saver()
-    latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
 
     epsilons = np.linspace(epsilon_start, epsilon_end, epsilon_decay_steps)
 
@@ -141,7 +133,10 @@ with tf.Session() as sess:
         mean_epi_reward = np.mean(epi_reward)
         if best_epi_reward < mean_epi_reward:
             best_epi_reward = mean_epi_reward
-            saver.save(tf.get_default_session(), checkpoint_path)
+        if i_episode%1000 == 0:
+            saver.save(tf.get_default_session(), './drive/My Drive/dqn/')
+            np.save('./drive/My Drive/dqn/epi_reward.npy', epi_reward)
+            np.save('./drive/My Drive/dqn/replay_memory.npy', replay_memory)
         len_replay_memory = len(replay_memory)
         while not done:
             epsilon = epsilons[min(opti_step+1, epsilon_decay_steps-1)]
