@@ -9,9 +9,12 @@ import gym
 
 class ReplayBuffer:
     def __init__(self, max_size):
-        self.M = deque(maxlen = max_size)
+        self.M = []
+        self.max_size = max_size
 
     def store(self, state, action, reward, next_state, done):
+        if self.M == self.max_size:
+            self.M.pop(0)
         self.M.append((state, action, reward, next_state, done))
 
     def batch_sample(self, batch_size):
