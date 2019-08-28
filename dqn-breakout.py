@@ -36,13 +36,14 @@ class Model:
 class Agent:
     def __init__(self):
         self.model = Model()
+        self.target_model = Model()
         self.memory = ReplayBuffer(1000000)
         self.action_space = [0, 1, 2, 3]
         self.batch_size = 32
         self.gamma = 0.99
         self.epsilon = 1.0
         self.epsilon_end = 0.1
-        self.epsilon_decay = 0.99997
+        self.epsilon_decay = 0.9999846
 
     def choose_action(self, state):
         state = np.array(state)[np.newaxis, :]
@@ -52,11 +53,14 @@ class Agent:
             actions = self.model.NN.predict(state)
             return np.argmax(actions[0])
 
+    def update_model(self):
+        self.target_model.NN.set_weights(self.model.NN.get_weights())
+
     def learn(self):
         if self.epsilon > self.epsilon_end:
            self.epsilon *= self.epsilon_decay
 
-        if len(self.memory.M) > 50000:
+        if len(self.memory.M) > self.batch_size:
             batch = self.memory.batch_sample(self.batch_size)
             states = []
             qs = []
@@ -69,7 +73,7 @@ class Agent:
                 if done:
                     target = reward
                 if not done:
-                    target = reward + self.gamma * np.max(self.model.NN.predict(next_state)[0])
+                    target = reward + self.gamma * np.max(self.target_model.NN.predict(next_state)[0])
 
                 q = self.model.NN.predict(state)
                 q[0][action] = target
@@ -83,7 +87,7 @@ class Agent:
 
 
 agent = Agent()
-env = gym.make('Breakout-ram-v0')
+env = gym.make('Breakout-ramDeterministic-v4')
 env = gym.wrappers.Monitor(env, "./video", video_callable=lambda episode_id: episode_id%50==0,force=True)
 env.reset()
 
@@ -101,9 +105,13 @@ for n in range(n_games):
         agent.memory.store(state, action, reward, next_state, done)
         state = next_state
         agent.learn()
+
+        if len(agent.memory.M)%40000 == 0:
+            agent.update_model()
+            print('Target Model Updated')
+            
     scores.append(score)
 
-    avg_score = np.mean(scores[-10:])
-
+    avg_score = np.mean(scores)
 
     print('episode {:4d}   score {:4d}   average score {:4d}     epsilon {:4f}    memory {:4d}'.format(n, int(score), int(avg_score), agent.epsilon, len(agent.memory.M)))
